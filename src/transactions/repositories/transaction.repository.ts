@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import { BaseRepository } from '../../common/repositories/base.repository';
 import { Transaction } from '../entities/transaction.entity';
 import { ITransactionRepository } from './transaction-repository.interface';
+import { TransactionStatus } from '../../common/enums/transaction-status.enum';
 
 @Injectable()
 export class TransactionRepository extends BaseRepository<Transaction> implements ITransactionRepository {
@@ -78,5 +79,45 @@ export class TransactionRepository extends BaseRepository<Transaction> implement
       order: { createdAt: 'DESC' },
       take: limit,
     });
+  }
+
+  async getCardDailyUsage(
+    cardId: number, 
+    transactionDate: Date,
+    manager?: EntityManager
+  ): Promise<number> {
+    const queryRunner = manager || this.repository.manager;
+    const txDateStr = transactionDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    const result = await queryRunner
+      .createQueryBuilder(Transaction, 'transaction')
+      .select('COALESCE(SUM(transaction.amount), 0)', 'total')
+      .where('transaction.cardId = :cardId', { cardId })
+      .andWhere('transaction.status = :status', { status: TransactionStatus.APPROVED })
+      .andWhere('DATE(transaction.transactionDate) = :txDate', { txDate: txDateStr })
+      .getRawOne();
+    
+    return parseFloat(result?.total || '0');
+  }
+
+  async getCardMonthlyUsage(
+    cardId: number,
+    transactionDate: Date,
+    manager?: EntityManager
+  ): Promise<number> {
+    const queryRunner = manager || this.repository.manager;
+    const txYear = transactionDate.getFullYear();
+    const txMonth = transactionDate.getMonth() + 1; // getMonth() returns 0-11
+    
+    const result = await queryRunner
+      .createQueryBuilder(Transaction, 'transaction')
+      .select('COALESCE(SUM(transaction.amount), 0)', 'total')
+      .where('transaction.cardId = :cardId', { cardId })
+      .andWhere('transaction.status = :status', { status: TransactionStatus.APPROVED })
+      .andWhere('EXTRACT(YEAR FROM transaction.transactionDate) = :txYear', { txYear })
+      .andWhere('EXTRACT(MONTH FROM transaction.transactionDate) = :txMonth', { txMonth })
+      .getRawOne();
+    
+    return parseFloat(result?.total || '0');
   }
 }

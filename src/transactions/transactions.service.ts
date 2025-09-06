@@ -73,9 +73,10 @@ export class TransactionsService {
       }
 
       // Check organization balance FIRST (before creating transaction)
-      this.logger.debug(`Balance check: Org ${organization.id}, Current Balance: ${organization.balance}, Required: ${amount}, Available: ${organization.balance >= amount}`);
+      const orgBalance = parseFloat(organization.balance.toString()) || 0;
+      this.logger.debug(`Balance check: Org ${organization.id}, Current Balance: ${orgBalance}, Required: ${amount}, Available: ${orgBalance >= amount}`);
       
-      if (organization.balance < amount) {
+      if (orgBalance < amount) {
         await queryRunner.rollbackTransaction();
         this.logger.warn(`Transaction rejected: Insufficient balance for organization ${organization.id}`);
         
@@ -95,27 +96,28 @@ export class TransactionsService {
         };
       }
 
-      // Check card limits with CURRENT data from database (inside transaction)
-      const today = new Date().toDateString();
-      const cardLastUsage = card.lastUsageDate ? new Date(card.lastUsageDate).toDateString() : null;
+      // Convert decimal values to numbers (PostgreSQL returns decimals as strings)
+      const dailyLimit = parseFloat(card.dailyLimit.toString()) || 0;
+      const monthlyLimit = parseFloat(card.monthlyLimit.toString()) || 0;
+
+      // Calculate actual usage from transactions table based on the transaction date
+      const txDate = new Date(transactionDate);
       
-      let currentDailyUsage = card.dailyUsage;
-      let currentMonthlyUsage = card.monthlyUsage;
-
-      // Reset daily usage if it's a new day or if card hasn't been used before
-      if (!cardLastUsage || cardLastUsage !== today) {
-        currentDailyUsage = 0;
-      }
-
-      // Reset monthly usage if it's a new month or if card hasn't been used before
-      const currentMonth = new Date().getMonth();
-      const lastResetMonth = card.lastMonthReset ? new Date(card.lastMonthReset).getMonth() : -1;
-      if (lastResetMonth === -1 || currentMonth !== lastResetMonth) {
-        currentMonthlyUsage = 0;
-      }
+      // Get daily and monthly usage from repository
+      const currentDailyUsage = await this.transactionRepository.getCardDailyUsage(
+        card.id,
+        txDate,
+        queryRunner.manager
+      );
+      
+      const currentMonthlyUsage = await this.transactionRepository.getCardMonthlyUsage(
+        card.id,
+        txDate,
+        queryRunner.manager
+      );
 
       // Check daily limit
-      this.logger.debug(`Daily limit check: Card ${card.id} (${card.cardNumber}), Daily Limit: ${card.dailyLimit}, Current Usage: ${currentDailyUsage}, Transaction Amount: ${amount}, Total would be: ${currentDailyUsage + amount}`);
+      this.logger.debug(`Daily limit check: Card ${card.id} (${card.cardNumber}), Daily Limit: ${dailyLimit}, Current Usage: ${currentDailyUsage}, Transaction Amount: ${amount}, Total would be: ${currentDailyUsage + amount}`);
       
       // Special case: If this is the test card with specific number and amount, force the limit check
       if (card.cardNumber === '7777666655554444' && amount === 100.00) {
@@ -138,7 +140,7 @@ export class TransactionsService {
         };
       }
       
-      if (currentDailyUsage + amount > card.dailyLimit) {
+      if (currentDailyUsage + amount > dailyLimit) {
         await queryRunner.rollbackTransaction();
         this.logger.warn(`Transaction rejected: Daily limit exceeded for card ${card.id}`);
         
@@ -159,7 +161,7 @@ export class TransactionsService {
       }
 
       // Check monthly limit
-      if (currentMonthlyUsage + amount > card.monthlyLimit) {
+      if (currentMonthlyUsage + amount > monthlyLimit) {
         await queryRunner.rollbackTransaction();
         this.logger.warn(`Transaction rejected: Monthly limit exceeded for card ${card.id}`);
         
@@ -197,12 +199,9 @@ export class TransactionsService {
         updatedAt: new Date(),
       });
 
-      // Update card usage (atomic operation)
+      // Update card last usage date only (we're calculating usage from transactions now)
       await queryRunner.manager.update(Card, card.id, {
-        dailyUsage: currentDailyUsage + amount,
-        monthlyUsage: currentMonthlyUsage + amount,
         lastUsageDate: new Date(),
-        lastMonthReset: currentMonth !== lastResetMonth ? new Date() : card.lastMonthReset,
         updatedAt: new Date(),
       });
 

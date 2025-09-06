@@ -93,6 +93,8 @@ describe('TransactionsService', () => {
             create: jest.fn(),
             save: jest.fn(),
             findAllWithRelations: jest.fn(),
+            getCardDailyUsage: jest.fn().mockResolvedValue(0),
+            getCardMonthlyUsage: jest.fn().mockResolvedValue(0),
           },
         },
         {
@@ -215,16 +217,13 @@ describe('TransactionsService', () => {
     });
 
     it('should reject transaction when card limits are exceeded', async () => {
-      // Create a card that will exceed daily limit
-      const cardWithHighUsage = {
-        ...mockCard,
-        dailyUsage: 450, // With 100 transaction amount, will exceed 500 daily limit
-        lastUsageDate: new Date(), // Same day
-      };
-
       jest.spyOn(queryRunner.manager, 'findOne')
-        .mockResolvedValueOnce(cardWithHighUsage)
+        .mockResolvedValueOnce(mockCard)
         .mockResolvedValueOnce(mockOrganization);
+
+      // Mock the repository methods to return high usage
+      jest.spyOn(transactionRepository, 'getCardDailyUsage').mockResolvedValue(450); // With 100 transaction amount, will exceed 500 daily limit
+      jest.spyOn(transactionRepository, 'getCardMonthlyUsage').mockResolvedValue(2000);
 
       const result = await service.processTransaction(createTransactionDto, mockFuelStation);
 
