@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyFuel Transaction Flow</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        .diagram-container {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.06);
+        }
+        .mermaid {
+            text-align: center;
+        }
+        .legend {
+            background: #e8f4f8;
+            border-left: 4px solid #2196f3;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+        }
+        .legend h3 {
+            color: #2196f3;
+            margin-top: 0;
+        }
+        .legend-item {
+            display: inline-block;
+            margin: 10px 20px 10px 0;
+            padding: 5px 10px;
+            background: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .validation-steps {
+            background: #fff3e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .validation-steps h3 {
+            color: #ef6c00;
+            margin-bottom: 15px;
+        }
+        .step {
+            background: white;
+            padding: 12px 15px;
+            margin: 8px 0;
+            border-radius: 6px;
+            border-left: 3px solid #ff9800;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+            transition: transform 0.2s;
+        }
+        .step:hover {
+            transform: translateX(5px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+        }
+        .step-number {
+            display: inline-block;
+            width: 25px;
+            height: 25px;
+            background: #ff9800;
+            color: white;
+            text-align: center;
+            line-height: 25px;
+            border-radius: 50%;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚗 MyFuel Transaction Processing Flow</h1>
+        
+        <div class="diagram-container">
+            <div class="mermaid">
+                flowchart TB
+                    %% Styling
+                    classDef stationStyle fill:#e8f4f8,stroke:#2196f3,stroke-width:2px,color:#000
+                    classDef apiStyle fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#000
+                    classDef serviceStyle fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#000
+                    classDef dbStyle fill:#e8f5e9,stroke:#4caf50,stroke-width:2px,color:#000
+                    classDef cacheStyle fill:#ffebee,stroke:#f44336,stroke-width:2px,color:#000
+                    classDef eventStyle fill:#fff8e1,stroke:#ffc107,stroke-width:2px,color:#000
+                    classDef decisionStyle fill:#fce4ec,stroke:#e91e63,stroke-width:2px,color:#000
+                    
+                    %% Nodes
+                    PS[Petrol Station<br/>Initiates Transaction]:::stationStyle
+                    API[API Gateway<br/>Receives Webhook]:::apiStyle
+                    AUTH[Authentication<br/>Verify API Key]:::apiStyle
+                    IDEM[Idempotency Check<br/>Redis Cache]:::cacheStyle
+                    VS[Validation Service<br/>Core Logic]:::serviceStyle
+                    
+                    %% Validation Sub-process
+                    CARD_CHECK{Card<br/>Valid?}:::decisionStyle
+                    ORG_CHECK{Organization<br/>Active?}:::decisionStyle
+                    BAL_CHECK{Balance<br/>Sufficient?}:::decisionStyle
+                    DAILY_CHECK{Daily Limit<br/>OK?}:::decisionStyle
+                    MONTH_CHECK{Monthly Limit<br/>OK?}:::decisionStyle
+                    
+                    %% Databases
+                    CARD_DB[(Cards DB)]:::dbStyle
+                    ORG_DB[(Organizations DB)]:::dbStyle
+                    TXN_DB[(Transactions DB)]:::dbStyle
+                    HIST_DB[(History DB)]:::dbStyle
+                    
+                    %% Processing
+                    PROC[Process Transaction<br/>Update Balances]:::serviceStyle
+                    
+                    %% Event Bus
+                    EVENT[Event Bus<br/>Publish Events]:::eventStyle
+                    NOTIFY[Notification Service]:::eventStyle
+                    ANALYTICS[Analytics Service]:::eventStyle
+                    
+                    %% Response
+                    SUCCESS[Success Response<br/>200 OK]:::stationStyle
+                    REJECT[Rejection Response<br/>400 Bad Request]:::stationStyle
+                    
+                    %% Main Flow
+                    PS -->|POST /webhook| API
+                    API --> AUTH
+                    AUTH -->|Valid| IDEM
+                    AUTH -->|Invalid| REJECT
+                    IDEM -->|Cached| SUCCESS
+                    IDEM -->|New| VS
+                    
+                    %% Validation Flow
+                    VS --> CARD_CHECK
+                    CARD_CHECK -->|Valid| ORG_CHECK
+                    CARD_CHECK -->|Invalid| REJECT
+                    CARD_CHECK -.->|Query| CARD_DB
+                    
+                    ORG_CHECK -->|Active| BAL_CHECK
+                    ORG_CHECK -->|Inactive| REJECT
+                    ORG_CHECK -.->|Query| ORG_DB
+                    
+                    BAL_CHECK -->|Sufficient| DAILY_CHECK
+                    BAL_CHECK -->|Insufficient| REJECT
+                    
+                    DAILY_CHECK -->|Within Limit| MONTH_CHECK
+                    DAILY_CHECK -->|Exceeded| REJECT
+                    
+                    MONTH_CHECK -->|Within Limit| PROC
+                    MONTH_CHECK -->|Exceeded| REJECT
+                    
+                    %% Processing Flow
+                    PROC -->|Update| CARD_DB
+                    PROC -->|Update| ORG_DB
+                    PROC -->|Insert| TXN_DB
+                    PROC -->|Log| HIST_DB
+                    PROC --> EVENT
+                    
+                    %% Event Flow
+                    EVENT -.->|Async| NOTIFY
+                    EVENT -.->|Async| ANALYTICS
+                    
+                    %% Final Response
+                    PROC --> SUCCESS
+                    SUCCESS -->|Response| PS
+                    REJECT -->|Response| PS
+            </div>
+        </div>
+        
+        <div class="validation-steps">
+            <h3>🔍 Validation Steps in Detail</h3>
+            <div class="step">
+                <span class="step-number">1</span>
+                <strong>Card Identification:</strong> Lookup card by number, verify it exists and is active
+            </div>
+            <div class="step">
+                <span class="step-number">2</span>
+                <strong>Organization Check:</strong> Verify organization is active and not suspended
+            </div>
+            <div class="step">
+                <span class="step-number">3</span>
+                <strong>Balance Validation:</strong> Check if organization balance ≥ transaction amount
+            </div>
+            <div class="step">
+                <span class="step-number">4</span>
+                <strong>Daily Limit Check:</strong> Verify daily usage + amount ≤ daily limit (with auto-reset)
+            </div>
+            <div class="step">
+                <span class="step-number">5</span>
+                <strong>Monthly Limit Check:</strong> Verify monthly usage + amount ≤ monthly limit (with auto-reset)
+            </div>
+            <div class="step">
+                <span class="step-number">6</span>
+                <strong>Process or Reject:</strong> If all validations pass, process transaction; otherwise reject with reason
+            </div>
+        </div>
+        
+        <div class="legend">
+            <h3>📋 Legend</h3>
+            <div class="legend-item">
+                <strong>→</strong> Synchronous Flow
+            </div>
+            <div class="legend-item">
+                <strong>⋯→</strong> Asynchronous Event
+            </div>
+            <div class="legend-item">
+                <strong>◆</strong> Decision Point
+            </div>
+            <div class="legend-item">
+                <strong>DB</strong> Database Operation
+            </div>
+            <div class="legend-item">
+                <strong>🔄</strong> Cache Hit/Miss
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                curve: 'basis',
+                padding: 20,
+                nodeSpacing: 50,
+                rankSpacing: 70
+            }
+        });
+    </script>
+</body>
+</html>

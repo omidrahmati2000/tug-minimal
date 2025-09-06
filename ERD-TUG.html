@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyFuel Database Architecture</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.6.1/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 25px 70px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #1a1a2e;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.8em;
+            font-weight: 300;
+            letter-spacing: -1px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 1.2em;
+            font-weight: 300;
+        }
+        .database-sections {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        .db-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+            border: 1px solid #e9ecef;
+        }
+        .db-title {
+            font-size: 1.3em;
+            font-weight: 600;
+            margin-bottom: 25px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            text-align: center;
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .auth-db .db-title { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .org-db .db-title { background: linear-gradient(135deg, #fa709a, #fee140); }
+        .card-db .db-title { background: linear-gradient(135deg, #30cfd0, #330867); }
+        .txn-db .db-title { background: linear-gradient(135deg, #a8edea, #fed6e3); color: #333; }
+        .station-db .db-title { background: linear-gradient(135deg, #ff6b6b, #4ecdc4); }
+        
+        .diagram-container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+        .diagram-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        .mermaid {
+            text-align: center;
+            min-width: 1400px;
+        }
+        .tables-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+            gap: 20px;
+        }
+        .table-card {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            border: 1px solid #e9ecef;
+        }
+        .table-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+        }
+        .table-header {
+            padding: 15px;
+            font-weight: 600;
+            color: white;
+            text-align: center;
+            font-size: 1.05em;
+            letter-spacing: 0.5px;
+        }
+        /* Professional table header colors */
+        .table-header.users { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .table-header.roles { background: linear-gradient(135deg, #6a82fb, #fc5c7d); }
+        .table-header.permissions { background: linear-gradient(135deg, #38f9d7, #43e97b); }
+        .table-header.system-roles { background: linear-gradient(135deg, #f093fb, #f5576c); }
+        .table-header.organizations { background: linear-gradient(135deg, #fa709a, #fee140); }
+        .table-header.cards { background: linear-gradient(135deg, #30cfd0, #330867); }
+        .table-header.transactions { background: linear-gradient(135deg, #f5af19, #f12711); }
+        .table-header.stations { background: linear-gradient(135deg, #ff6b6b, #4ecdc4); }
+        .table-header.apikeys { background: linear-gradient(135deg, #636e72, #2d3436); }
+        
+        .table-body {
+            padding: 15px;
+            background: #fafbfc;
+            max-height: 450px;
+            overflow-y: auto;
+        }
+        .field {
+            padding: 9px 12px;
+            margin: 6px 0;
+            background: white;
+            border-radius: 6px;
+            border-left: 3px solid #dee2e6;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .field:hover {
+            border-left-color: #4dabf7;
+            background: #f8f9fa;
+            transform: translateX(3px);
+        }
+        .field.pk {
+            border-left-color: #ffd43b;
+            background: #fff9db;
+            font-weight: 600;
+        }
+        .field.fk {
+            border-left-color: #51cf66;
+            background: #f3f9f4;
+        }
+        .field.unique {
+            border-left-color: #ff6b6b;
+            background: #fff5f5;
+        }
+        .field.index {
+            border-left-color: #339af0;
+            background: #e7f5ff;
+        }
+        .field.special {
+            border-left-color: #f093fb;
+            background: #fef4ff;
+        }
+        .field-name {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .field-type {
+            color: #868e96;
+            font-size: 0.85em;
+            font-family: 'Courier New', monospace;
+        }
+        .field-icon {
+            width: 18px;
+            text-align: center;
+        }
+        
+        /* Role Management Diagram */
+        .role-management-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 40px;
+            border: 1px solid #dee2e6;
+        }
+        .role-management-title {
+            font-size: 1.4em;
+            font-weight: 600;
+            color: #495057;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .role-paths {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+        }
+        .role-path {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+        }
+        .role-path-title {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .role-flow {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin: 15px 0;
+        }
+        .role-box {
+            flex: 1;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            text-align: center;
+        }
+        .role-arrow {
+            padding: 0 15px;
+            color: #4dabf7;
+            font-size: 1.5em;
+        }
+        
+        .legend {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 25px;
+            margin-top: 40px;
+            border: 1px solid #dee2e6;
+        }
+        .legend h3 {
+            color: #495057;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+        .legend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        .legend-item {
+            padding: 10px 15px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .relationships {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin-top: 30px;
+            border: 1px solid #dee2e6;
+        }
+        .relationships h3 {
+            color: #495057;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+        .rel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 15px;
+        }
+        .rel-item {
+            padding: 12px 15px;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid #4dabf7;
+            font-size: 0.95em;
+        }
+        .rel-item strong {
+            color: #495057;
+        }
+        
+        /* Statistics */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        /* Important Notes */
+        .note-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .note {
+            background: linear-gradient(135deg, #fff9e6 0%, #ffe5cc 100%);
+            border-left: 4px solid #f39c12;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+        }
+        .note-title {
+            font-weight: 600;
+            color: #e67e22;
+            margin-bottom: 10px;
+        }
+        .note-content {
+            color: #555;
+            font-size: 0.95em;
+            line-height: 1.6;
+        }
+        .note code {
+            background: #fff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f3f5;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #adb5bd;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #868e96;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MyFuel Database Architecture</h1>
+        <p class="subtitle">Enterprise Multi-tenant Fuel Management System with Advanced RBAC</p>
+        
+        <!-- Statistics Overview -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">5</div>
+                <div class="stat-label">Databases</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">16+</div>
+                <div class="stat-label">Core Tables</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">RBAC</div>
+                <div class="stat-label">Security Model</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">Multi</div>
+                <div class="stat-label">Tenant Support</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">API</div>
+                <div class="stat-label">Management</div>
+            </div>
+        </div>
+        
+        <!-- Role Management Section -->
+        <div class="role-management-section">
+            <div class="role-management-title">User Role Management Architecture</div>
+            <div class="role-paths">
+                <div class="role-path">
+                    <div class="role-path-title">System Administrator Path</div>
+                    <div class="role-flow">
+                        <div class="role-box">
+                            <strong>User Account</strong><br>
+                            <small>Authentication</small>
+                        </div>
+                        <div class="role-arrow">→</div>
+                        <div class="role-box">
+                            <strong>system_roles</strong><br>
+                            <small>Direct Assignment</small>
+                        </div>
+                        <div class="role-arrow">→</div>
+                        <div class="role-box">
+                            <strong>System Access</strong><br>
+                            <small>Full Permissions</small>
+                        </div>
+                    </div>
+                    <div style="background: #e7f5ff; padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 0.9em;">
+                        <strong>Use Case:</strong> Platform administrators without organization affiliation
+                    </div>
+                </div>
+                
+                <div class="role-path">
+                    <div class="role-path-title">Organization Member Path</div>
+                    <div class="role-flow">
+                        <div class="role-box">
+                            <strong>User Account</strong><br>
+                            <small>Authentication</small>
+                        </div>
+                        <div class="role-arrow">→</div>
+                        <div class="role-box">
+                            <strong>organization_users</strong><br>
+                            <small>Org Assignment</small>
+                        </div>
+                        <div class="role-arrow">→</div>
+                        <div class="role-box">
+                            <strong>Org Access</strong><br>
+                            <small>Scoped Permissions</small>
+                        </div>
+                    </div>
+                    <div style="background: #e7f5ff; padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 0.9em;">
+                        <strong>Use Case:</strong> Organization members with specific roles per organization
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main ERD Diagram -->
+        <div class="diagram-container">
+            <div class="diagram-title">System Entity Relationships</div>
+            <div class="mermaid">
+                erDiagram
+                    %% User & Auth Relations
+                    users ||--o{ system_roles : "system admin"
+                    users ||--o{ organization_users : "org member"
+                    users ||--o{ refresh_tokens : "authenticates"
+                    users ||--o{ audit_logs : "performs"
+                    users ||--o{ cards : "assigned to"
+                    
+                    %% System Roles (Direct Assignment)
+                    system_roles ||--|| roles : "has role"
+                    
+                    %% Role & Permission Relations
+                    roles ||--o{ role_permissions : "grants"
+                    permissions ||--o{ role_permissions : "assigned to"
+                    roles ||--o{ organization_users : "org role"
+                    
+                    %% Organization Relations
+                    organizations ||--o{ organization_users : "has members"
+                    organizations ||--o{ cards : "issues"
+                    organizations ||--o{ transactions : "performs"
+                    organizations ||--o{ balance_history : "tracks"
+                    
+                    %% Organization User Permissions
+                    organization_users ||--o{ organization_user_permissions : "customizes"
+                    permissions ||--o{ organization_user_permissions : "overrides"
+                    
+                    %% Card Relations
+                    cards ||--o{ transactions : "used in"
+                    cards ||--o{ card_limits_history : "tracks usage"
+                    
+                    %% Station Relations
+                    petrol_stations ||--o{ station_api_keys : "uses"
+                    
+                    %% API Key Relations (Now in Auth DB)
+                    api_keys ||--o{ station_api_keys : "assigned to"
+                    api_keys ||--o{ api_key_permissions : "has permissions"
+                    api_keys ||--o{ transactions : "authorizes"
+                    
+                    %% Transaction Relations
+                    transactions ||--o| balance_history : "affects"
+                    petrol_stations ||--o{ transactions : "processes"
+            </div>
+        </div>
+        
+        <!-- Database Sections -->
+        <div class="database-sections">
+            <!-- Authentication Database -->
+            <div class="db-section auth-db">
+                <div class="db-title">Authentication & Authorization Database</div>
+                <div class="tables-grid">
+                    <!-- Users Table -->
+                    <div class="table-card">
+                        <div class="table-header users">users</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">
+                                    <span class="field-icon">📧</span>
+                                    <span>email</span>
+                                </span>
+                                <span class="field-type">VARCHAR(255)</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">
+                                    <span class="field-icon">👤</span>
+                                    <span>username</span>
+                                </span>
+                                <span class="field-type">VARCHAR(100)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">password_hash</span>
+                                <span class="field-type">VARCHAR(255)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">first_name</span>
+                                <span class="field-type">VARCHAR(100)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">last_name</span>
+                                <span class="field-type">VARCHAR(100)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">phone</span>
+                                <span class="field-type">VARCHAR(20)</span>
+                            </div>
+                            <div class="field special">
+                                <span class="field-name">
+                                    <span class="field-icon">⚡</span>
+                                    <span>is_system_admin</span>
+                                </span>
+                                <span class="field-type">BOOLEAN</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">is_active</span>
+                                <span class="field-type">BOOLEAN</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">mfa_enabled</span>
+                                <span class="field-type">BOOLEAN</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">last_login_at</span>
+                                <span class="field-type">TIMESTAMPTZ</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">created_at</span>
+                                <span class="field-type">TIMESTAMPTZ</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- System Roles Table -->
+                    <div class="table-card">
+                        <div class="table-header system-roles">system_roles</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">
+                                    <span class="field-icon">👤</span>
+                                    <span>user_id</span>
+                                </span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">
+                                    <span class="field-icon">👥</span>
+                                    <span>role_id</span>
+                                </span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">granted_by</span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">granted_at</span>
+                                <span class="field-type">TIMESTAMPTZ</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">UNIQUE(user_id, role_id)</span>
+                                <span class="field-type">CONSTRAINT</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Roles Table -->
+                    <div class="table-card">
+                        <div class="table-header roles">roles</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">name</span>
+                                <span class="field-type">VARCHAR(50)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">display_name</span>
+                                <span class="field-type">VARCHAR(100)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">description</span>
+                                <span class="field-type">TEXT</span>
+                            </div>
+                            <div class="field special">
+                                <span class="field-name">role_type</span>
+                                <span class="field-type">ENUM(system/org)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">is_system</span>
+                                <span class="field-type">BOOLEAN</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">priority</span>
+                                <span class="field-type">INTEGER</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- API Keys Table (Moved here) -->
+                    <div class="table-card">
+                        <div class="table-header apikeys">api_keys</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">
+                                    <span class="field-icon">🔒</span>
+                                    <span>key_hash</span>
+                                </span>
+                                <span class="field-type">VARCHAR(255)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">key_prefix</span>
+                                <span class="field-type">VARCHAR(10)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">name</span>
+                                <span class="field-type">VARCHAR(100)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">key_type</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">owner_type</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">owner_id</span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">scopes</span>
+                                <span class="field-type">JSONB</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">rate_limit_per_minute</span>
+                                <span class="field-type">INTEGER</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">status</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">expires_at</span>
+                                <span class="field-type">TIMESTAMPTZ</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Organization Database -->
+            <div class="db-section org-db">
+                <div class="db-title">Organization Management Database</div>
+                <div class="tables-grid">
+                    <!-- Organizations Table -->
+                    <div class="table-card">
+                        <div class="table-header organizations">organizations</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">code</span>
+                                <span class="field-type">VARCHAR(50)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">name</span>
+                                <span class="field-type">VARCHAR(255)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">email</span>
+                                <span class="field-type">VARCHAR(255)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">
+                                    <span class="field-icon">💰</span>
+                                    <span>balance</span>
+                                </span>
+                                <span class="field-type">DECIMAL(15,2)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">credit_limit</span>
+                                <span class="field-type">DECIMAL(15,2)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">currency</span>
+                                <span class="field-type">VARCHAR(3)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">max_cards</span>
+                                <span class="field-type">INTEGER</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">max_users</span>
+                                <span class="field-type">INTEGER</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">status</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">settings</span>
+                                <span class="field-type">JSONB</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Organization Users Table -->
+                    <div class="table-card">
+                        <div class="table-header organizations">organization_users</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">user_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">organization_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">role_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">status</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">is_primary</span>
+                                <span class="field-type">BOOLEAN</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">department</span>
+                                <span class="field-type">VARCHAR(100)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">position</span>
+                                <span class="field-type">VARCHAR(100)</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">UNIQUE(user_id, org_id)</span>
+                                <span class="field-type">CONSTRAINT</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="database-sections">
+            <!-- Card Database -->
+            <div class="db-section card-db">
+                <div class="db-title">Card Management Database</div>
+                <div class="tables-grid">
+                    <!-- Cards Table -->
+                    <div class="table-card">
+                        <div class="table-header cards">cards</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">organization_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">
+                                    <span class="field-icon">💳</span>
+                                    <span>card_number</span>
+                                </span>
+                                <span class="field-type">VARCHAR(16)</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">assigned_to_user</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">card_holder_name</span>
+                                <span class="field-type">VARCHAR(255)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">daily_limit</span>
+                                <span class="field-type">DECIMAL(10,2)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">monthly_limit</span>
+                                <span class="field-type">DECIMAL(12,2)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">restrictions</span>
+                                <span class="field-type">JSONB</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">status</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Card Limits History -->
+                    <div class="table-card">
+                        <div class="table-header cards">card_limits_history</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">card_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">period_type</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">period_date</span>
+                                <span class="field-type">DATE</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">usage_amount</span>
+                                <span class="field-type">DECIMAL(12,2)</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">UNIQUE(card, period, date)</span>
+                                <span class="field-type">CONSTRAINT</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Transaction Database -->
+            <div class="db-section txn-db">
+                <div class="db-title">Transaction Processing Database</div>
+                <div class="tables-grid">
+                    <!-- Transactions Table -->
+                    <div class="table-card">
+                        <div class="table-header transactions">transactions</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">transaction_ref</span>
+                                <span class="field-type">VARCHAR(50)</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">card_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">organization_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">station_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">api_key_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">
+                                    <span class="field-icon">💰</span>
+                                    <span>amount</span>
+                                </span>
+                                <span class="field-type">DECIMAL(10,2)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">status</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">transaction_date</span>
+                                <span class="field-type">TIMESTAMPTZ</span>
+                            </div>
+                            <div class="field index">
+                                <span class="field-name">PARTITIONED BY MONTH</span>
+                                <span class="field-type">PARTITION</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Station Database -->
+            <div class="db-section station-db">
+                <div class="db-title">Station Management Database</div>
+                <div class="tables-grid">
+                    <!-- Petrol Stations -->
+                    <div class="table-card">
+                        <div class="table-header stations">petrol_stations</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">
+                                    <span class="field-icon">⛽</span>
+                                    <span>station_code</span>
+                                </span>
+                                <span class="field-type">VARCHAR(20)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">name</span>
+                                <span class="field-type">VARCHAR(255)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">brand</span>
+                                <span class="field-type">VARCHAR(100)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">address</span>
+                                <span class="field-type">JSONB</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">coordinates</span>
+                                <span class="field-type">POINT</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">webhook_url</span>
+                                <span class="field-type">VARCHAR(500)</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">status</span>
+                                <span class="field-type">ENUM</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Station API Keys -->
+                    <div class="table-card">
+                        <div class="table-header stations">station_api_keys</div>
+                        <div class="table-body">
+                            <div class="field pk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔑</span>
+                                    <span>id</span>
+                                </span>
+                                <span class="field-type">UUID</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">station_id</span>
+                                <span class="field-type">UUID FK</span>
+                            </div>
+                            <div class="field fk">
+                                <span class="field-name">
+                                    <span class="field-icon">🔗</span>
+                                    <span>api_key_id</span>
+                                </span>
+                                <span class="field-type">UUID FK → Auth DB</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">is_primary</span>
+                                <span class="field-type">BOOLEAN</span>
+                            </div>
+                            <div class="field">
+                                <span class="field-name">assigned_at</span>
+                                <span class="field-type">TIMESTAMPTZ</span>
+                            </div>
+                            <div class="field unique">
+                                <span class="field-name">UNIQUE(station, key)</span>
+                                <span class="field-type">CONSTRAINT</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Relationships Summary -->
+        <div class="relationships">
+            <h3>Entity Relationships</h3>
+            <div class="rel-grid">
+                <div class="rel-item">
+                    <strong>System Admin Management:</strong> Direct role assignment via system_roles table
+                </div>
+                <div class="rel-item">
+                    <strong>Organization Members:</strong> Role assignment via organization_users table
+                </div>
+                <div class="rel-item">
+                    <strong>API Key Management:</strong> Centralized in Authentication Service
+                </div>
+                <div class="rel-item">
+                    <strong>Station Authentication:</strong> API keys referenced from Auth Service
+                </div>
+                <div class="rel-item">
+                    <strong>Card Assignment:</strong> Cards linked to users within organizations
+                </div>
+                <div class="rel-item">
+                    <strong>Transaction Processing:</strong> Links cards, organizations, and stations
+                </div>
+            </div>
+        </div>
+        
+        <!-- Important Notes -->
+        <div class="note-section">
+            <div class="note">
+                <div class="note-title">System Administrator Management</div>
+                <div class="note-content">
+                    System administrators are managed through the <code>system_roles</code> table, providing direct role assignment without requiring organization membership. This allows platform-level administration with full system access.
+                </div>
+            </div>
+            
+            <div class="note">
+                <div class="note-title">API Key Centralization</div>
+                <div class="note-content">
+                    All API keys are managed in the Authentication Service database (<code>api_keys</code> table) for centralized security, rate limiting, and access control. Other services reference these keys via foreign key relationships.
+                </div>
+            </div>
+            
+            <div class="note">
+                <div class="note-title">Permission Resolution Logic</div>
+                <div class="note-content">
+                    <code>IF user IN system_roles THEN check_system_permissions()<br>
+                    ELSE IF user IN organization_users THEN check_org_permissions()<br>
+                    ELSE deny_access()</code>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Legend -->
+        <div class="legend">
+            <h3>Database Architecture</h3>
+            <div class="legend-grid">
+                <div class="legend-item">
+                    <strong>🔑</strong> Primary Key
+                </div>
+                <div class="legend-item">
+                    <strong>🔗</strong> Foreign Key
+                </div>
+                <div class="legend-item">
+                    <strong>📧</strong> Unique Constraint
+                </div>
+                <div class="legend-item">
+                    <strong>📊</strong> Indexed Column
+                </div>
+                <div class="legend-item">
+                    <strong>JSONB</strong> Flexible Metadata
+                </div>
+                <div class="legend-item">
+                    <strong>PARTITION</strong> Table Partitioning
+                </div>
+                <div class="legend-item">
+                    <strong>ENUM</strong> Enumerated Type
+                </div>
+                <div class="legend-item">
+                    <strong>→ Auth DB</strong> Cross-DB Reference
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            er: {
+                diagramPadding: 20,
+                layoutDirection: 'TB',
+                minEntityWidth: 120,
+                minEntityHeight: 80,
+                entityPadding: 15,
+                stroke: '#495057',
+                fill: '#f8f9fa',
+                fontSize: 12
+            }
+        });
+    </script>
+</body>
+</html>

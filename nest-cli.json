@@ -1,0 +1,22 @@
+{
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": true,
+    "tsConfigPath": "tsconfig.json",
+    "plugins": [
+      {
+        "name": "@nestjs/swagger",
+        "options": {
+          "classValidatorShim": false,
+          "introspectComments": true,
+          "dtoKeyOfComment": "description",
+          "controllerKeyOfComment": "summary",
+          "dtoFileNameSuffix": [".dto.ts", "-response.dto.ts"],
+          "controllerFileNameSuffix": ".controller.ts"
+        }
+      }
+    ]
+  }
+}

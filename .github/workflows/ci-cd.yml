@@ -1,0 +1,273 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment Environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      skip_tests:
+        description: 'Skip tests'
+        required: false
+        default: false
+        type: boolean
+      docker_tag:
+        description: 'Docker image tag'
+        required: false
+        default: 'latest'
+        type: string
+
+env:
+  NODE_VERSION: '18'
+  DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY || 'ghcr.io' }}
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME || github.actor }}
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD || secrets.GITHUB_TOKEN }}
+  
+jobs:
+  test:
+    name: 🧪 Test & Quality Check
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_tests }}
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: myfuel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: 📦 Install dependencies
+      run: npm ci
+      
+    - name: 🔍 Run linting
+      run: npm run lint
+      
+    - name: 🏗️ Build application
+      run: npm run build
+      
+    - name: 🧪 Run unit tests with coverage
+      run: npm run test:cov
+      env:
+        NODE_ENV: test
+        
+    - name: 🧪 Run E2E tests  
+      run: npm run test:e2e
+      env:
+        NODE_ENV: test
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_USERNAME: postgres
+        DB_PASSWORD: postgres
+        DB_NAME: myfuel_test
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+        JWT_SECRET: test-jwt-secret-key-for-ci-pipeline-min-32-chars
+        FUEL_STATION_API_KEYS: station_key_shell_001,station_key_bp_002,station_key_exxon_003,station_key_chevron_004
+        
+    - name: 📊 Upload coverage reports
+      if: always()
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage/lcov.info
+        fail_ci_if_error: true
+        
+    - name: 📈 Coverage threshold check
+      run: |
+        echo "Checking coverage thresholds..."
+        # Extract coverage percentages from Jest output
+        COVERAGE_STATEMENTS=$(cat coverage/coverage-summary.json | jq -r '.total.statements.pct')
+        COVERAGE_BRANCHES=$(cat coverage/coverage-summary.json | jq -r '.total.branches.pct') 
+        COVERAGE_FUNCTIONS=$(cat coverage/coverage-summary.json | jq -r '.total.functions.pct')
+        COVERAGE_LINES=$(cat coverage/coverage-summary.json | jq -r '.total.lines.pct')
+        
+        echo "Coverage: Statements=$COVERAGE_STATEMENTS%, Branches=$COVERAGE_BRANCHES%, Functions=$COVERAGE_FUNCTIONS%, Lines=$COVERAGE_LINES%"
+        
+        # Minimum thresholds
+        MIN_COVERAGE=50
+        
+        if (( $(echo "$COVERAGE_STATEMENTS < $MIN_COVERAGE" | bc -l) )); then
+          echo "❌ Statement coverage ($COVERAGE_STATEMENTS%) is below threshold ($MIN_COVERAGE%)"
+          exit 1
+        fi
+        if (( $(echo "$COVERAGE_LINES < $MIN_COVERAGE" | bc -l) )); then
+          echo "❌ Line coverage ($COVERAGE_LINES%) is below threshold ($MIN_COVERAGE%)"
+          exit 1
+        fi
+        
+        echo "✅ Coverage thresholds met"
+
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🔍 Run security audit
+      run: npm audit --audit-level high
+      
+    - name: 🛡️ Run CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: javascript
+        
+    - name: 🏗️ Autobuild
+      uses: github/codeql-action/autobuild@v3
+      
+    - name: 📋 Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+
+  build:
+    name: 🏗️ Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    if: always() && (needs.test.result == 'success' || inputs.skip_tests) && needs.security-scan.result == 'success'
+    
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 🔧 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: 🔐 Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ env.DOCKER_PASSWORD }}
+        
+    - name: 📝 Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=${{ inputs.docker_tag || 'latest' }}
+          
+    - name: 🏗️ Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          NODE_ENV=${{ inputs.environment || 'production' }}
+          API_URL=${{ secrets.API_URL }}
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: (github.ref == 'refs/heads/develop' || inputs.environment == 'staging') && github.event_name != 'pull_request'
+    environment: 
+      name: staging
+      url: ${{ secrets.STAGING_URL }}
+      
+    steps:
+    - name: 🚀 Deploy to staging
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.STAGING_HOST }}
+        username: ${{ secrets.STAGING_USER }}
+        key: ${{ secrets.STAGING_SSH_KEY }}
+        port: ${{ secrets.STAGING_PORT || 22 }}
+        script: |
+          cd ${{ secrets.STAGING_PATH }}
+          docker pull ${{ needs.build.outputs.image-tag }}
+          docker-compose down
+          docker-compose up -d
+          
+    - name: ✅ Health check
+      run: |
+        timeout 300 bash -c 'until curl -f ${{ secrets.STAGING_URL }}/health; do sleep 5; done'
+
+  deploy-production:
+    name: 🚀 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: (github.ref == 'refs/heads/main' || inputs.environment == 'production') && github.event_name != 'pull_request'
+    environment:
+      name: production
+      url: ${{ secrets.PRODUCTION_URL }}
+      
+    steps:
+    - name: 🚀 Deploy to production
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.PRODUCTION_HOST }}
+        username: ${{ secrets.PRODUCTION_USER }}
+        key: ${{ secrets.PRODUCTION_SSH_KEY }}
+        port: ${{ secrets.PRODUCTION_PORT || 22 }}
+        script: |
+          cd ${{ secrets.PRODUCTION_PATH }}
+          docker pull ${{ needs.build.outputs.image-tag }}
+          docker-compose down
+          docker-compose up -d
+          
+    - name: ✅ Health check
+      run: |
+        timeout 300 bash -c 'until curl -f ${{ secrets.PRODUCTION_URL }}/health; do sleep 5; done'
+        
+    - name: 📢 Notify deployment
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        message: |
+          🚀 Production deployment completed!
+          Status: ${{ job.status }}
+          Image: ${{ needs.build.outputs.image-tag }}

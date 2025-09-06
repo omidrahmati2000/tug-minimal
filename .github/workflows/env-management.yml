@@ -1,0 +1,245 @@
+name: 🌍 Environment Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Environment Action'
+        required: true
+        type: choice
+        options:
+        - create
+        - destroy
+        - update
+        - rollback
+      environment:
+        description: 'Target Environment'
+        required: true
+        type: choice
+        options:
+        - dev
+        - staging
+        - production
+      version:
+        description: 'Application Version'
+        required: false
+        type: string
+      config_update:
+        description: 'Update Configuration'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY || 'ghcr.io' }}
+  TERRAFORM_VERSION: '1.5.0'
+  
+jobs:
+  validate-inputs:
+    name: ✅ Validate Inputs
+    runs-on: ubuntu-latest
+    
+    outputs:
+      proceed: ${{ steps.validate.outputs.proceed }}
+      
+    steps:
+    - name: 🔍 Validate parameters
+      id: validate
+      run: |
+        if [[ "${{ inputs.action }}" == "destroy" && "${{ inputs.environment }}" == "production" ]]; then
+          echo "❌ Production environment cannot be destroyed via automation"
+          echo "proceed=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        echo "✅ Validation passed"
+        echo "proceed=true" >> $GITHUB_OUTPUT
+
+  terraform-plan:
+    name: 📋 Terraform Plan
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    if: needs.validate-inputs.outputs.proceed == 'true' && contains(fromJson('["create", "update", "destroy"]'), inputs.action)
+    
+    env:
+      TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_app_version: ${{ inputs.version || 'latest' }}
+      TF_VAR_docker_registry: ${{ env.DOCKER_REGISTRY }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: ⚙️ Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+        
+    - name: 🔧 Terraform Init
+      run: |
+        cd infrastructure/terraform
+        terraform init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+                      -backend-config="key=${{ inputs.environment }}/terraform.tfstate" \
+                      -backend-config="region=${{ secrets.AWS_REGION }}"
+                      
+    - name: 📋 Terraform Plan
+      id: plan
+      run: |
+        cd infrastructure/terraform
+        terraform plan -var-file="environments/${{ inputs.environment }}.tfvars" \
+                      -destroy=${{ inputs.action == 'destroy' && 'true' || 'false' }} \
+                      -out=tfplan
+                      
+    - name: 💾 Upload plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan-${{ inputs.environment }}
+        path: infrastructure/terraform/tfplan
+
+  deploy-environment:
+    name: 🚀 Deploy Environment
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, terraform-plan]
+    if: needs.validate-inputs.outputs.proceed == 'true'
+    environment:
+      name: ${{ inputs.environment }}
+      
+    env:
+      TF_VAR_environment: ${{ inputs.environment }}
+      TF_VAR_app_version: ${{ inputs.version || 'latest' }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: ⚙️ Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+        
+    - name: 📥 Download plan
+      if: inputs.action != 'rollback'
+      uses: actions/download-artifact@v4
+      with:
+        name: terraform-plan-${{ inputs.environment }}
+        path: infrastructure/terraform/
+        
+    - name: 🔧 Terraform Init
+      run: |
+        cd infrastructure/terraform
+        terraform init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+                      -backend-config="key=${{ inputs.environment }}/terraform.tfstate" \
+                      -backend-config="region=${{ secrets.AWS_REGION }}"
+                      
+    - name: 🚀 Terraform Apply
+      if: inputs.action != 'rollback'
+      run: |
+        cd infrastructure/terraform
+        terraform apply -auto-approve tfplan
+        
+    - name: 🔄 Rollback Environment
+      if: inputs.action == 'rollback'
+      run: |
+        cd infrastructure/terraform
+        # Get previous state
+        terraform state pull > current_state.json
+        
+        # Apply rollback configuration
+        terraform plan -var-file="environments/${{ inputs.environment }}.tfvars" \
+                      -var="app_version=${{ secrets.LAST_KNOWN_GOOD_VERSION }}" \
+                      -out=rollback_plan
+        terraform apply -auto-approve rollback_plan
+        
+    - name: 🔧 Update Configuration
+      if: inputs.config_update
+      run: |
+        # Update application configuration
+        kubectl config use-context ${{ inputs.environment }}
+        kubectl create configmap app-config \
+          --from-env-file=config/${{ inputs.environment }}.env \
+          --dry-run=client -o yaml | kubectl apply -f -
+          
+        # Restart deployments to pick up new config
+        kubectl rollout restart deployment/app
+        kubectl rollout status deployment/app
+
+  health-check:
+    name: 🏥 Health Check
+    runs-on: ubuntu-latest
+    needs: deploy-environment
+    if: always() && needs.deploy-environment.result == 'success'
+    
+    steps:
+    - name: 🔍 Wait for deployment
+      run: sleep 60
+      
+    - name: 🏥 Check application health
+      run: |
+        case "${{ inputs.environment }}" in
+          "dev")
+            HEALTH_URL="${{ secrets.DEV_URL }}/health"
+            ;;
+          "staging")
+            HEALTH_URL="${{ secrets.STAGING_URL }}/health"
+            ;;
+          "production")
+            HEALTH_URL="${{ secrets.PRODUCTION_URL }}/health"
+            ;;
+        esac
+        
+        echo "Checking health at: $HEALTH_URL"
+        
+        for i in {1..10}; do
+          if curl -f -s "$HEALTH_URL"; then
+            echo "✅ Health check passed"
+            exit 0
+          fi
+          echo "⏳ Attempt $i failed, retrying in 30s..."
+          sleep 30
+        done
+        
+        echo "❌ Health check failed after 10 attempts"
+        exit 1
+        
+    - name: 📊 Run smoke tests
+      if: success()
+      run: |
+        case "${{ inputs.environment }}" in
+          "dev")
+            BASE_URL="${{ secrets.DEV_URL }}"
+            ;;
+          "staging")
+            BASE_URL="${{ secrets.STAGING_URL }}"
+            ;;
+          "production")
+            BASE_URL="${{ secrets.PRODUCTION_URL }}"
+            ;;
+        esac
+        
+        # Run basic smoke tests
+        curl -f "$BASE_URL/api/status"
+        curl -f "$BASE_URL/api/version"
+
+  notify:
+    name: 📢 Notify Results
+    runs-on: ubuntu-latest
+    needs: [deploy-environment, health-check]
+    if: always()
+    
+    steps:
+    - name: 📢 Send notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ needs.deploy-environment.result == 'success' && needs.health-check.result == 'success' && 'success' || 'failure' }}
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        message: |
+          🌍 Environment Management: ${{ inputs.action }}
+          Environment: ${{ inputs.environment }}
+          Version: ${{ inputs.version || 'latest' }}
+          Status: ${{ needs.deploy-environment.result == 'success' && needs.health-check.result == 'success' && '✅ Success' || '❌ Failed' }}
+          Triggered by: ${{ github.actor }}
